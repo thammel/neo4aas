@@ -1,0 +1,66 @@
+# Single Neo4j instance for the AAS analysis pipeline.
+#
+# The graph is disposable: orchestrate.py uploads the corpus in data/ into it and
+# every analysis step is read-only afterwards. `docker compose down -v` throws the
+# whole thing away and the next run re-uploads.
+#
+# Every value below that is worth changing carries a comment. Nothing else needs
+# touching for an ordinary run.
+
+services:
+
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j-aas
+    restart: on-failure
+
+    environment:
+      # Credentials. Must match NEO4J_USER / NEO4J_PASSWORD in the environment the
+      # pipeline runs under (tool/common.py defaults to exactly these).
+      NEO4J_AUTH: neo4j/12345678
+
+      # APOC is required, not optional: the storage model's flattened lists are
+      # read back through apoc.convert.toList and the import path uses apoc.
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+
+      # --- Memory ------------------------------------------------------------
+      # Neo4j 5 auto-sizes its heap from total host RAM unless pinned. Pinned here
+      # so the JVM does not grab the whole machine. Rough budget for the values
+      # below: heap + pagecache + ~0.5G JVM/OS overhead.
+      #
+      # Small corpus (< ~100k SubmodelElements) — the defaults below are ample;
+      # 1G heap / 512m pagecache is enough and the container fits in ~2G.
+      #
+      # Large corpus (millions of SubmodelElements) — raise all four. A corpus of
+      # ~12M SubmodelElements / ~500k submodels needs roughly:
+      #     heap_initial 1G, heap_max 4G, pagecache 1G, transaction_total_max 3G
+      # and ~5G free RAM while the container runs. The constraint_check step is
+      # what forces this: its queries otherwise exceed the default transaction
+      # memory cap, which is 70% of heap (~717 MiB at a 1G heap).
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+      # Per-transaction ceiling across the DBMS. Leave unset to keep the 70%-of-heap
+      # default; set it explicitly when constraint_check runs out of memory.
+      # NEO4J_dbms_memory_transaction_total_max: 3G
+
+    ports:
+      # host:container. Change the host side only — the pipeline reaches the
+      # database over bolt, so a changed bolt port must also be given to
+      # orchestrate.py via --bolt-port (or NEO4J_BOLT_URI for a bare step).
+      - "7474:7474"   # HTTP, Neo4j Browser at http://localhost:7474
+      - "7687:7687"   # Bolt, what the pipeline connects to
+
+    volumes:
+      # Named volumes, so the graph survives `docker compose stop` and a re-run
+      # skips the upload. Swap either for a bind mount (e.g. ./neo4j/data:/data)
+      # to keep the store inside the working tree instead.
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+
+volumes:
+  neo4j-data:
+  neo4j-logs:

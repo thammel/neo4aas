@@ -1,0 +1,37 @@
+# The corpus and run outputs are never committed: the data is vendor-supplied
+# and the published results in april_2026/ and june_2026/ are anonymised.
+/data/*
+!/data/.gitkeep
+/results/*
+
+# AAS schemas are IDTA's to distribute — the tree ships empty schema directories
+# and the user drops their own copies in. Never commit a copy.
+/schemas/json/*
+/schemas/xml/*
+!/schemas/json/.gitkeep
+!/schemas/xml/.gitkeep
+
+# Submodel templates come from IDTA downloads, same reasoning. Current editions
+# live in idta-templates/ and withdrawn ones in depricated-templates/, both at
+# the repository root next to data/ and schemas/ — supplied by the user, never
+# committed.
+*/submodel-templates/*
+/idta-templates/*
+!/idta-templates/.gitkeep
+!/idta-templates/README.md
+/depricated-templates/*
+!/depricated-templates/.gitkeep
+!/depricated-templates/README.md
+
+**/node_modules/
+**/__pycache__/*
+/*.egg-info/
+/build/
+/dist/
+/src/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.claude
+CLAUDE.md
+/.vscode/*

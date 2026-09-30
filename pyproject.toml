@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ba-aas-state-of-the-art"
+version = "0.1.0"
+description = "Bachelor's thesis: empirical analysis of AAS instances in industrial settings"
+requires-python = ">=3.11"
+dependencies = [
+    "aas4graph @ git+https://github.com/thammel/neo4aas.git@f905c56",
+    "basyx-python-sdk>=2.0.0",
+    "neo4j>=6.1.0",
+    "lxml>=6.0",
+]
+
+[project.scripts]
+orchestrate = "tool.orchestrate:main"
+
+# An allowlist, not a blocklist: discovery treats every directory as a namespace
+# package, so an exclude list silently grew april_2026, june_2026, schemas,
+# idta-templates and depricated-templates into top-level packages.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tool*"]
+exclude = ["tool.ajv.node_modules*"]
+
+# The AJV worker is Node, so its sources are package data rather than modules.
+# Without this a non-editable install ships AjvValidatorWorker.py and nothing for
+# it to spawn.
+[tool.setuptools.package-data]
+"tool.ajv" = ["*.js", "package.json", "package-lock.json"]
