@@ -46,9 +46,11 @@ any directory.
 ### Schemas
 
 None are shipped — they are IDTA's to distribute. Drop your own into
-`schemas/json/` and `schemas/xml/`; see `schemas/README.md` for the expected
-filenames and for what the pipeline does without them (it skips the schema step,
-and constraint results then report `"version_source": "known"` or `"unknown"`).
+`schemas/json/` (any `*.json`) and `schemas/xml/` (any `*.xsd`). Every file found
+is validated against and reported separately; name one after a metamodel version
+(`3-0.json`, `3-1.xsd`) and it also takes part in version detection, name it
+anything else (`custom.json`) and it is reported under that name as an extra
+check. See `schemas/README.md` for the details.
 
 ### IDTA templates
 
