@@ -8,8 +8,13 @@ AasxToNeo4jImporter uses composition: it wraps any XmlToNeo4jImporter instance
 AAS XML files from the AASX archive.
 
 Detection strategy: scan all .xml entries in the ZIP and accept those whose root
-element is the AAS 3.0 <environment> tag. This is simpler than OPC relationship
-parsing and sufficient for all AAS 3.0-compliant AASX files.
+element is an AAS <environment>, matched by local name so every metamodel
+namespace (3/0, 3/1, ...) qualifies. This is simpler than OPC relationship
+parsing and sufficient for all AAS 3.x-compliant AASX files.
+
+`iter_aasx_environments` exposes the extraction without Neo4j, so callers that
+only need the AAS JSON dicts (e.g. reading submodel templates) parse an AASX
+exactly the way the importer does.
 """
 import logging
 import os
@@ -21,11 +26,35 @@ from typing import Iterator
 
 from aas_mapping.aas_neo4j_adapter.utils import UploadStats
 from aas_mapping.aas_neo4j_adapter.xmlification.neo4j_import import XmlToNeo4jImporter
-from aas_mapping.aas_neo4j_adapter.xmlification.xml_to_json import AAS_NS, xml_to_aas_json
+from aas_mapping.aas_neo4j_adapter.xmlification.xml_to_json import _strip_ns, xml_to_aas_json
 
 logger = logging.getLogger(__name__)
 
-_AAS_ENV_TAG = f"{{{AAS_NS}}}environment"
+
+def iter_aasx_xml_bytes(aasx_path: str) -> Iterator[bytes]:
+    """Yield the raw bytes of each AAS XML environment found in the AASX ZIP.
+
+    The root is matched by local name, not by the 3/0 namespace: a V3.1 package
+    would otherwise yield nothing and import as empty without any warning.
+    """
+    with zipfile.ZipFile(aasx_path, 'r') as zf:
+        for name in zf.namelist():
+            if not name.endswith('.xml'):
+                continue
+            content = zf.read(name)
+            try:
+                root = ET.fromstring(content)
+            except ET.ParseError:
+                logger.warning(f"Skipping malformed XML entry '{name}' in {aasx_path}")
+                continue
+            if _strip_ns(root.tag) == "environment":
+                yield content
+
+
+def iter_aasx_environments(aasx_path: str) -> Iterator[dict]:
+    """Yield each AAS environment in the AASX as an AAS JSON-equivalent dict. No Neo4j."""
+    for xml_bytes in iter_aasx_xml_bytes(aasx_path):
+        yield xml_to_aas_json(xml_bytes)
 
 
 class AasxToNeo4jImporter:
@@ -47,25 +76,10 @@ class AasxToNeo4jImporter:
     def __init__(self, xml_importer: XmlToNeo4jImporter):
         self.xml_importer = xml_importer
 
-    def _iter_aas_xml_bytes(self, aasx_path: str) -> Iterator[bytes]:
-        """Yield the raw bytes of each AAS XML environment found in the AASX ZIP."""
-        with zipfile.ZipFile(aasx_path, 'r') as zf:
-            for name in zf.namelist():
-                if not name.endswith('.xml'):
-                    continue
-                content = zf.read(name)
-                try:
-                    root = ET.fromstring(content)
-                    if root.tag == _AAS_ENV_TAG:
-                        yield content
-                except ET.ParseError:
-                    logger.warning(f"Skipping malformed XML entry '{name}' in {aasx_path}")
-
     def upload_aasx_file(self, aasx_path: str, db_batch_size: int = 1000) -> UploadStats:
         """Extract AAS XML files from an AASX package and upload them to Neo4j."""
         stats = UploadStats()
-        for xml_bytes in self._iter_aas_xml_bytes(aasx_path):
-            xml_dict = xml_to_aas_json(xml_bytes)
+        for xml_dict in iter_aasx_environments(aasx_path):
             file_stats = self.xml_importer.upload_xml(xml_dict, db_batch_size=db_batch_size)
             stats.total_nodes_created += file_stats.total_nodes_created
             stats.total_relationships_created += file_stats.total_relationships_created
