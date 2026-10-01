@@ -118,21 +118,33 @@ class BaseNeo4JClient:
         """
         Remove all nodes and relationships from the Neo4j database in batches.
         It prevents memory errors on large databases.
+
+        Relationships go first, nodes second. Deduplicated nodes are dense and DETACH DELETE
+        drops all of a node's relationships in the same transaction, which exceeds the
+        transaction memory limit no matter how small the node batch is. Deleting
+        relationships in batches bounds every transaction by `batch_size` relationships.
         """
         with self.driver.session() as session:
             while True:
-                result = session.run(f"""
-                    MATCH (n)
-                    WITH n LIMIT {batch_size}
-                    DETACH DELETE n
-                    RETURN count(n) AS nodes_deleted
-                """)
-                nodes_deleted = result.single()["nodes_deleted"]
-                logger.info(f"Deleted {nodes_deleted} nodes.")
+                n = session.run(
+                    "MATCH ()-[r]->() WITH r LIMIT $batch_size DELETE r RETURN count(r) AS n",
+                    batch_size=batch_size,
+                ).single()["n"]
+                if n:
+                    logger.info(f"Deleted {n} relationships.")
+                if n < batch_size:
+                    break
 
-                # If the number of nodes deleted is less than the batch size,
-                # it means we have reached the end of the database.
-                if nodes_deleted < batch_size:
+            while True:
+                # DETACH as a safeguard: nothing should be attached any more, but a
+                # relationship written in between must not abort the wipe.
+                n = session.run(
+                    "MATCH (n) WITH n LIMIT $batch_size DETACH DELETE n RETURN count(n) AS n",
+                    batch_size=batch_size,
+                ).single()["n"]
+                if n:
+                    logger.info(f"Deleted {n} nodes.")
+                if n < batch_size:
                     break
 
     def _truncate_db(self, db_name="neo4j"):
